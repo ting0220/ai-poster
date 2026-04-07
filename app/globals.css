@@ -12,15 +12,14 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* 统一加深所有输入框的 placeholder 颜色，低对比度屏幕上更易辨识 */
+::placeholder {
+  color: #71717a !important; /* zinc-500 */
+  opacity: 1 !important;
 }
