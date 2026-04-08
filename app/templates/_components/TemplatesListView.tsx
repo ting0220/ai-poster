@@ -4,6 +4,15 @@ import { prisma } from "@/app/_lib/prisma";
 import { isAuthenticated } from "@/app/_lib/auth";
 import PasswordGate from "@/app/_components/PasswordGate";
 
+function formatDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  const h = String(date.getHours()).padStart(2, "0");
+  const min = String(date.getMinutes()).padStart(2, "0");
+  return `${y}-${m}-${d} ${h}:${min}`;
+}
+
 export default async function TemplatesListView() {
   const authenticated = await isAuthenticated();
 
@@ -38,7 +47,7 @@ export default async function TemplatesListView() {
                     画布：{t.canvasWidth} x {t.canvasHeight}
                   </div>
                   <div className="mt-2 text-[11px] text-zinc-400">
-                    更新：{new Date(t.updatedAt).toLocaleString()}
+                    更新：{formatDate(t.updatedAt)}
                   </div>
                 </div>
               </div>

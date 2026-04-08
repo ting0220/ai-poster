@@ -1,20 +1,22 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Image as ImageIcon, Type as TypeIcon, GripHorizontal, Upload, X, Layers, Trash2 } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Image as ImageIcon, Type as TypeIcon, GripHorizontal, Upload, X, Layers, Trash2, Type, ChevronDown, Loader2, Trash } from "lucide-react";
 import { Rnd } from "react-rnd";
 import type {
   PosterElement,
   PosterImageElement,
   PosterTextElement,
+  FontItem,
 } from "./posterTypes";
+import { useFonts } from "./useFonts";
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
 const SIZE_MIN = 10;
-const SIZE_MAX = 2000;
+const ELEMENT_SIZE_MAX = 10000;
 
 /** 画布与侧栏：无图或历史默认 /file.svg 时用轻量占位，避免大块默认图标显得乱 */
 function isEmptyImageSrc(src: string | undefined | null) {
@@ -47,8 +49,8 @@ function toNumber(input: string, fallback: number) {
 }
 
 function applyBounds(next: PosterElement, bounds: { w: number; h: number }): PosterElement {
-  const width = clamp(next.width, SIZE_MIN, Math.min(bounds.w, SIZE_MAX));
-  const height = clamp(next.height, SIZE_MIN, Math.min(bounds.h, SIZE_MAX));
+  const width = clamp(next.width, SIZE_MIN, ELEMENT_SIZE_MAX);
+  const height = clamp(next.height, SIZE_MIN, ELEMENT_SIZE_MAX);
   const x = clamp(next.x, 0, Math.max(0, bounds.w - width));
   const y = clamp(next.y, 0, Math.max(0, bounds.h - height));
   return { ...next, x, y, width, height };
@@ -58,7 +60,62 @@ type ElementEditorProps = {
   element: PosterElement;
   onChange: (patch: Partial<PosterElement>) => void;
   onDelete: () => void;
+  fonts: FontItem[];
 };
+
+/** 字体选择器组件（仅显示已上传字体） */
+function FontPicker({
+  value,
+  onChange,
+  fonts,
+}: {
+  value: string | undefined;
+  onChange: (v: string) => void;
+  fonts: FontItem[];
+}) {
+  const current = value ?? "";
+
+  if (fonts.length === 0) {
+    return (
+      <label className="block">
+        <div className="mb-1 text-xs text-zinc-600">字体</div>
+        <div className="rounded-lg border border-dashed border-zinc-200 bg-zinc-50 px-2 py-2 text-center text-xs text-zinc-400">
+          暂无字体，请先在「字体管理」中上传
+        </div>
+      </label>
+    );
+  }
+
+  return (
+    <label className="block">
+      <div className="mb-1 text-xs text-zinc-600">字体</div>
+      <div className="relative">
+        <select
+          className="w-full appearance-none rounded-lg border border-zinc-200 bg-white px-2 py-1.5 pr-7 text-sm text-zinc-900 outline-none focus:border-zinc-400"
+          value={current}
+          onChange={(e) => onChange(e.target.value)}
+          style={{ fontFamily: current || undefined }}
+        >
+          <option value="">默认字体</option>
+          {fonts.map((f) => (
+            <option key={f.id} value={f.name} style={{ fontFamily: f.name }}>
+              {f.name}
+            </option>
+          ))}
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
+      </div>
+      {current && (
+        <div
+          className="mt-1 truncate rounded bg-zinc-50 px-2 py-1 text-sm text-zinc-700"
+          style={{ fontFamily: current }}
+        >
+          字体预览 AaBb中文
+        </div>
+      )}
+    </label>
+  );
+}
 
 export type PosterTemplateSnapshot = {
   canvasSize: { w: number; h: number };
@@ -159,7 +216,7 @@ function ColorField({
   );
 }
 
-function ElementEditor({ element, onChange, onDelete }: ElementEditorProps) {
+function ElementEditor({ element, onChange, onDelete, fonts }: ElementEditorProps) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -247,11 +304,6 @@ function ElementEditor({ element, onChange, onDelete }: ElementEditorProps) {
               value={element.fontSize}
               onChange={(next) => onChange({ fontSize: next })}
             />
-            <NumberField
-              label="最大行数"
-              value={element.maxLines}
-              onChange={(next) => onChange({ maxLines: next })}
-            />
           </div>
 
           <div className="mt-3">
@@ -259,6 +311,14 @@ function ElementEditor({ element, onChange, onDelete }: ElementEditorProps) {
               label="字体颜色"
               value={element.color}
               onChange={(next) => onChange({ color: next })}
+            />
+          </div>
+
+          <div className="mt-3">
+            <FontPicker
+              value={(element as PosterTextElement).fontFamily}
+              onChange={(v) => onChange({ fontFamily: v } as Partial<PosterTextElement>)}
+              fonts={fonts}
             />
           </div>
 
@@ -382,10 +442,47 @@ export default function PosterBuilder({
   const [scale, setScale] = useState<number>(1);
   const [scaleInput, setScaleInput] = useState<string>("100%");
 
+  /** 计算并应用「适应屏幕」缩放：让画布完整显示在滚动容器内 */
+  const applyFitScale = useCallback((size?: { w: number; h: number }) => {
+    const { w, h } = size ?? canvasSize;
+    // 用窗口尺寸计算可用区域（避免 zoom 影响 clientWidth）
+    const sidebarW = 300; // 左侧栏宽度
+    const padding = 96; // 容器内边距
+    const availW = window.innerWidth - sidebarW - padding;
+    const availH = window.innerHeight - padding;
+    const fitW = availW / w;
+    const fitH = availH / h;
+    const fit = Math.min(fitW, fitH, 1); // 不超过 100%
+    if (!Number.isFinite(fit) || fit <= 0) return;
+    const clamped = Math.max(0.1, Math.round(fit * 100) / 100);
+    setScale(clamped);
+  }, [canvasSize]);
+
+  // 字体管理
+  const { fonts, loading: fontsLoading, uploading: fontUploading, error: fontError, uploadFont, deleteFont } = useFonts();
+  const [showFontManager, setShowFontManager] = useState(false);
+  const [fontUploadName, setFontUploadName] = useState("");
+  const [fontUploadError, setFontUploadError] = useState<string | null>(null);
+
   // 同步背景图 prop 变化到内部 state
   useEffect(() => {
     setBackgroundImage(initialBackgroundImage ?? null);
   }, [initialBackgroundImage]);
+
+  // mount 后等容器尺寸稳定，自动适应屏幕（多帧重试确保拿到正确尺寸）
+  useEffect(() => {
+    let rafId: number;
+    const tryFit = () => {
+      applyFitScale();
+    };
+    // 用 rAF 确保在布局完成后执行；再延迟一帧兜底
+    rafId = requestAnimationFrame(() => {
+      requestAnimationFrame(tryFit);
+    });
+    return () => cancelAnimationFrame(rafId);
+  // 仅 mount 时执行一次
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const updateElement = (id: string, patch: Partial<PosterElement>) => {
     const bounds = { w: canvasSize.w, h: canvasSize.h };
@@ -397,16 +494,15 @@ export default function PosterBuilder({
         const warnings: string[] = [];
         const kind = el.type === "image" ? "图片" : "文本";
         if (merged.width < SIZE_MIN) warnings.push(`${kind}宽度最小不要小于${SIZE_MIN}`);
-        if (merged.width > SIZE_MAX) warnings.push(`${kind}宽度最大不要超出${SIZE_MAX}`);
+        if (merged.width > ELEMENT_SIZE_MAX) warnings.push(`${kind}宽度最大不要超出${ELEMENT_SIZE_MAX}`);
         if (merged.height < SIZE_MIN) warnings.push(`${kind}高度最小不要小于${SIZE_MIN}`);
-        if (merged.height > SIZE_MAX) warnings.push(`${kind}高度最大不要超出${SIZE_MAX}`);
+        if (merged.height > ELEMENT_SIZE_MAX) warnings.push(`${kind}高度最大不要超出${ELEMENT_SIZE_MAX}`);
         if (warnings.length) window.alert(warnings.join("\n"));
 
-        merged.width = clamp(merged.width, SIZE_MIN, SIZE_MAX);
-        merged.height = clamp(merged.height, SIZE_MIN, SIZE_MAX);
+        merged.width = clamp(merged.width, SIZE_MIN, ELEMENT_SIZE_MAX);
+        merged.height = clamp(merged.height, SIZE_MIN, ELEMENT_SIZE_MAX);
 
         if (merged.type === "text") {
-          merged.maxLines = clamp(Math.round(merged.maxLines), 1, 12);
           merged.fontSize = clamp(merged.fontSize, 8, 180);
         }
         return applyBounds(merged, bounds);
@@ -415,19 +511,18 @@ export default function PosterBuilder({
   };
 
   const setCanvasSizeAndClamp = (next: { w: number; h: number }) => {
-    const warnings: string[] = [];
-    if (next.w < SIZE_MIN) warnings.push(`画布宽度最小不要小于${SIZE_MIN}`);
-    if (next.w > SIZE_MAX) warnings.push(`画布宽度最大不要超出${SIZE_MAX}`);
-    if (next.h < SIZE_MIN) warnings.push(`画布高度最小不要小于${SIZE_MIN}`);
-    if (next.h > SIZE_MAX) warnings.push(`画布高度最大不要超出${SIZE_MAX}`);
-    if (warnings.length) window.alert(warnings.join("\n"));
+    if (next.w < SIZE_MIN || next.h < SIZE_MIN) {
+      window.alert(`画布宽高最小为 ${SIZE_MIN}`);
+    }
 
     const clamped = {
-      w: clamp(next.w, SIZE_MIN, SIZE_MAX),
-      h: clamp(next.h, SIZE_MIN, SIZE_MAX),
+      w: Math.max(next.w, SIZE_MIN),
+      h: Math.max(next.h, SIZE_MIN),
     };
     setCanvasSize(clamped);
     setElements((prev) => prev.map((el) => applyBounds(el, clamped)));
+    // 尺寸变更后自动适应屏幕（用 window 尺寸，不受 zoom 影响）
+    requestAnimationFrame(() => applyFitScale(clamped));
   };
 
   const selected = useMemo(
@@ -509,7 +604,6 @@ export default function PosterBuilder({
       text: "输入文字",
       fontSize: 32,
       color: "#111827",
-      maxLines: 2,
       textAlign: "left",
       verticalAlign: "top",
       x: clamp(x - 20, 0, Math.max(0, bounds.w - 360)),
@@ -535,9 +629,9 @@ export default function PosterBuilder({
   };
 
   return (
-    <div className="min-h-screen bg-zinc-50">
-      <div className="flex">
-        <aside className="w-[300px] shrink-0 border-r border-zinc-200 bg-white px-4 py-6">
+    <div className="h-screen overflow-hidden bg-zinc-50">
+      <div className="flex h-full">
+        <aside className="w-[300px] shrink-0 overflow-y-auto border-r border-zinc-200 bg-white px-4 py-6">
           {sidebarHeader ? <div className="mb-4">{sidebarHeader}</div> : null}
 
           <div className="flex items-center justify-between">
@@ -584,6 +678,26 @@ export default function PosterBuilder({
                 <div className="text-xs text-zinc-500">拖拽生成文字块</div>
               </div>
             </div>
+          </div>
+
+          {/* 字体管理入口 */}
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={() => setShowFontManager(true)}
+              className="flex w-full items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-left shadow-sm hover:border-zinc-300 hover:bg-zinc-50"
+            >
+              <div className="grid h-8 w-8 place-items-center rounded-lg bg-indigo-50 text-indigo-600">
+                <Type className="h-4 w-4" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-zinc-900">字体管理</div>
+                <div className="text-xs text-zinc-500">
+                  {fontsLoading ? "加载中…" : `${fonts.length} 个字体`}
+                </div>
+              </div>
+              <ChevronDown className="h-3.5 w-3.5 text-zinc-400 -rotate-90" />
+            </button>
           </div>
 
           <div className="mt-6 rounded-xl border border-zinc-200 bg-white/70 p-3">
@@ -684,9 +798,17 @@ export default function PosterBuilder({
           {sidebarFooter ? <div className="mt-4">{sidebarFooter}</div> : null}
         </aside>
 
-        <main className="relative flex-1 overflow-hidden bg-zinc-200/60">
+        <main className="relative flex h-full flex-1 overflow-hidden bg-zinc-200/60">
           {/* 缩放控件 - 右上角绝对定位 */}
-          <div className="absolute right-6 top-6 z-10">
+          <div className="absolute right-6 top-6 z-10 flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => applyFitScale()}
+              className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-xs font-medium text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50"
+              title="适应屏幕"
+            >
+              适应
+            </button>
             <input
               ref={scaleInputRef}
               className="w-[52px] rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-right text-xs font-medium text-zinc-600 outline-none tabular-nums focus:border-zinc-400"
@@ -805,25 +927,28 @@ export default function PosterBuilder({
                             )
                           ) : (
                             <div
-                              className="flex h-full w-full flex-col p-2"
+                              className="flex h-full min-h-0 w-full flex-col p-2"
                               style={{
                                 fontSize: el.fontSize,
                                 color: el.color,
                                 lineHeight: 1.15,
                                 wordBreak: "break-word",
                                 overflow: "hidden",
+                                fontFamily: (el as PosterTextElement).fontFamily || undefined,
                               }}
                             >
+                              {/* flex-1 占满剩余高度，否则内层高度贴内容，justify-content 无法产生上下留白 */}
                               <div
+                                className="flex min-h-0 w-full flex-1 flex-col"
                                 style={{
-                                  display: "-webkit-box",
-                                  WebkitLineClamp: el.maxLines,
-                                  WebkitBoxOrient: "vertical",
-                                  overflow: "hidden",
+                                  justifyContent:
+                                    el.verticalAlign === "center"
+                                      ? "center"
+                                      : el.verticalAlign === "bottom"
+                                        ? "flex-end"
+                                        : "flex-start",
                                   textAlign: el.textAlign,
-                                  alignSelf: "stretch",
-                                  marginTop: el.verticalAlign === "center" ? "auto" : el.verticalAlign === "bottom" ? "auto" : "0",
-                                  marginBottom: el.verticalAlign === "center" ? "auto" : el.verticalAlign === "bottom" ? "0" : "0",
+                                  overflow: "hidden",
                                 }}
                               >
                                 {el.text || (
@@ -843,8 +968,8 @@ export default function PosterBuilder({
 
           {selected ? (
             <div className="pointer-events-none absolute right-8 top-8 z-20 w-[320px]">
-              <div className="pointer-events-auto rounded-2xl border border-zinc-200 bg-white/85 p-4 shadow-sm backdrop-blur">
-                <ElementEditor element={selected} onChange={updateSelected} onDelete={() => {
+              <div className="pointer-events-auto max-h-[calc(100vh-120px)] overflow-y-auto rounded-2xl border border-zinc-200 bg-white/85 p-4 shadow-sm backdrop-blur">
+                <ElementEditor element={selected} onChange={updateSelected} fonts={fonts} onDelete={() => {
                     setElements((prev) => prev.filter((e) => e.id !== selected.id));
                     setSelectedId(null);
                   }} />
@@ -853,6 +978,131 @@ export default function PosterBuilder({
           ) : null}
         </main>
       </div>
+
+      {/* 字体管理弹窗 */}
+      {showFontManager && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowFontManager(false);
+          }}
+        >
+          <div className="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl mx-4">
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2">
+                <div className="grid h-9 w-9 place-items-center rounded-xl bg-indigo-50 text-indigo-600">
+                  <Type className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="text-base font-semibold text-zinc-900">字体管理</div>
+                  <div className="text-xs text-zinc-500">上传字体后可在文本元素中使用</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowFontManager(false)}
+                className="flex h-8 w-8 items-center justify-center rounded-xl text-zinc-500 hover:bg-zinc-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* 上传新字体 */}
+            <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-4 mb-5">
+              <div className="text-xs font-medium text-zinc-700 mb-3">上传字体文件</div>
+              <div className="mb-2">
+                <label className="block">
+                  <div className="mb-1 text-xs text-zinc-600">字体名称（留空则使用文件名）</div>
+                  <input
+                    className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-400"
+                    type="text"
+                    placeholder="例如：思源黑体"
+                    value={fontUploadName}
+                    onChange={(e) => setFontUploadName(e.target.value)}
+                  />
+                </label>
+              </div>
+              {fontUploadError && (
+                <div className="mb-2 text-xs text-red-500">{fontUploadError}</div>
+              )}
+              <label className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-white py-2.5 text-sm font-medium text-zinc-700 hover:border-zinc-400 hover:bg-zinc-50 transition-colors">
+                {fontUploading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    上传中…
+                  </>
+                ) : (
+                  <>
+                    <Upload className="h-4 w-4" />
+                    选择字体文件（.ttf .otf .woff .woff2）
+                  </>
+                )}
+                <input
+                  type="file"
+                  className="sr-only"
+                  accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2,application/font-woff,application/font-woff2,application/x-font-ttf,application/x-font-otf,application/octet-stream"
+                  disabled={fontUploading}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    e.target.value = "";
+                    setFontUploadError(null);
+                    const result = await uploadFont(file, fontUploadName || undefined);
+                    if (result) {
+                      setFontUploadName("");
+                    } else {
+                      setFontUploadError(fontError ?? "上传失败");
+                    }
+                  }}
+                />
+              </label>
+              <div className="mt-2 text-[11px] text-zinc-400">支持 TrueType (.ttf)、OpenType (.otf)、Web Open Font (.woff / .woff2)</div>
+            </div>
+
+            {/* 字体列表 */}
+            <div>
+              <div className="text-xs font-medium text-zinc-700 mb-2">
+                已上传字体
+                {fontsLoading && <Loader2 className="inline ml-1 h-3 w-3 animate-spin" />}
+              </div>
+              {fonts.length === 0 && !fontsLoading ? (
+                <div className="rounded-xl border border-zinc-100 bg-zinc-50 py-6 text-center text-xs text-zinc-400">
+                  暂无已上传字体
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+                  {fonts.map((font) => (
+                    <div
+                      key={font.id}
+                      className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-3 py-2.5"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium text-zinc-900" style={{ fontFamily: font.name }}>
+                          {font.name}
+                        </div>
+                        <div className="text-[11px] text-zinc-400 mt-0.5">
+                          {font.format.toUpperCase()} · <span style={{ fontFamily: font.name }}>AaBb 中文字体预览</span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!confirm(`确定删除字体「${font.name}」吗？删除后已用该字体的文本将回退到默认字体。`)) return;
+                          await deleteFont(font.id);
+                        }}
+                        className="ml-3 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-red-400 hover:bg-red-50 hover:text-red-500"
+                        title="删除字体"
+                      >
+                        <Trash className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -24,9 +24,19 @@ export interface PosterTextElement extends PosterElementBase {
   text: string;
   fontSize: number;
   color: string;
-  maxLines: number;
   textAlign: "left" | "center" | "right";
   verticalAlign: "top" | "center" | "bottom";
+  /** 字体名称，对应已注册的 @font-face family name，空字符串或 undefined 表示使用默认字体 */
+  fontFamily?: string;
+}
+
+/** 字体条目（来自 /api/fonts） */
+export interface FontItem {
+  id: string;
+  name: string;
+  url: string;
+  format: string;
+  createdAt: string;
 }
 
 export type PosterElement = PosterImageElement | PosterTextElement;

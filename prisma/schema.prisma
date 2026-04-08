@@ -49,7 +49,9 @@ model TemplateElement {
   defaultText String?
   fontSize    Int?
   color       String?
-  maxLines    Int?
+  fontFamily  String?
+  textAlign   String?
+  verticalAlign String?
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -58,4 +60,13 @@ model TemplateElement {
 
   @@unique([templateId, variableKey])
   @@index([templateId])
+}
+
+model Font {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  fileName  String
+  url       String
+  format    String   // ttf / woff / woff2 / otf
+  createdAt DateTime @default(now())
 }

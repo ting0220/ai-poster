@@ -1,7 +1,5 @@
 "use client";
 
-import React from "react";
-
 export type RenderPosterElement = {
   id: string;
   type: "image" | "text";
@@ -20,9 +18,9 @@ export type RenderPosterElement = {
   defaultText?: string | null;
   fontSize?: number | null;
   color?: string | null;
-  maxLines?: number | null;
   textAlign?: "left" | "center" | "right" | null;
   verticalAlign?: "top" | "center" | "bottom" | null;
+  fontFamily?: string | null;
 };
 
 export default function PosterCanvasStatic({
@@ -84,9 +82,9 @@ export default function PosterCanvasStatic({
           const text = values[el.variableKey] ?? el.defaultText ?? "";
           const fontSize = el.fontSize ?? 32;
           const color = el.color ?? "#111827";
-          const maxLines = el.maxLines ?? 2;
           const textAlign = (el.textAlign ?? "left") as "left" | "center" | "right";
           const verticalAlign = (el.verticalAlign ?? "top") as "top" | "center" | "bottom";
+          const fontFamily = el.fontFamily ?? undefined;
 
           return (
             <div
@@ -95,25 +93,27 @@ export default function PosterCanvasStatic({
               style={{ left, top, width: el.width, height: el.height, zIndex: el.zIndex }}
             >
               <div
-                className="flex h-full w-full flex-col p-0"
+                className="flex h-full min-h-0 w-full flex-col p-0"
                 style={{
                   fontSize,
                   color,
                   lineHeight: 1.15,
                   wordBreak: "break-word",
                   overflow: "hidden",
+                  fontFamily: fontFamily || undefined,
                 }}
               >
                 <div
+                  className="flex min-h-0 w-full flex-1 flex-col"
                   style={{
-                    display: "-webkit-box",
-                    WebkitLineClamp: maxLines,
-                    WebkitBoxOrient: "vertical",
-                    overflow: "hidden",
+                    justifyContent:
+                      verticalAlign === "center"
+                        ? "center"
+                        : verticalAlign === "bottom"
+                          ? "flex-end"
+                          : "flex-start",
                     textAlign,
-                    alignSelf: "stretch",
-                    marginTop: verticalAlign === "center" ? "auto" : verticalAlign === "bottom" ? "auto" : "0",
-                    marginBottom: verticalAlign === "center" ? "auto" : verticalAlign === "bottom" ? "0" : "0",
+                    overflow: "hidden",
                   }}
                 >
                   {text}

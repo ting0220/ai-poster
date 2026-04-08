@@ -1,9 +1,11 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Image as ImageIcon, Download, Maximize } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toPng } from "html-to-image";
+import { Image as ImageIcon, Download } from "lucide-react";
 import PosterCanvasStatic, { type RenderPosterElement } from "@/app/_components/poster/PosterCanvasStatic";
 import ImageCropper from "@/app/templates/_components/ImageCropper";
+import { useFonts } from "@/app/_components/poster/useFonts";
 
 type TemplateRenderData = {
   id: string;
@@ -31,9 +33,33 @@ type CropState = {
 export default function GenerateTemplateClient({ template }: { template: TemplateRenderData }) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [cropState, setCropState] = useState<CropState>(null);
-  const previewContainerRef = useRef<HTMLDivElement | null>(null);
-  const [scale, setScale] = useState<number>(1);
-  const [fitScale, setFitScale] = useState<number>(1);
+  /** 绑定到预览里已绘制的 1:1 画布根节点（勿用离屏节点，否则浏览器不绘制会得到全白图） */
+  const previewCaptureRef = useRef<HTMLDivElement | null>(null);
+
+  // 计算预览区宽度：根据画布比例和可用空间，确保不纵向滚动
+  const [previewWidth, setPreviewWidth] = useState(240);
+  useEffect(() => {
+    const updatePreviewWidth = () => {
+      // 顶部区域高度 ≈ 标题(约50px) + 上下padding(48px) + 间距(24px)
+      const headerHeight = 122;
+      // 预览容器高度 = 视口高度 - 顶部区域 - 底部预留
+      const maxPreviewHeight = window.innerHeight - headerHeight - 24;
+      // 画布比例
+      const canvasRatio = template.canvasHeight / template.canvasWidth;
+      // 计算预览宽度（预览区高度固定，计算宽度）
+      const calculatedWidth = Math.floor(maxPreviewHeight / canvasRatio);
+      // 限制最大宽度，保留一定空间给输入区
+      const maxWidth = Math.floor(window.innerWidth * 0.5); // 最多占视口50%
+      const minWidth = 200; // 最小宽度
+      setPreviewWidth(Math.max(minWidth, Math.min(calculatedWidth, maxWidth)));
+    };
+    updatePreviewWidth();
+    window.addEventListener("resize", updatePreviewWidth);
+    return () => window.removeEventListener("resize", updatePreviewWidth);
+  }, [template.canvasWidth, template.canvasHeight]);
+
+  // 加载自定义字体（让自定义字体在生成页也能正确渲染）
+  useFonts();
 
   const elementByKey = useMemo(() => {
     const map = new Map<string, RenderPosterElement>();
@@ -53,57 +79,6 @@ export default function GenerateTemplateClient({ template }: { template: Templat
   });
 
   const keys = Array.from(elementByKey.keys());
-
-  // 自动计算适应预览区的缩放比例
-  useEffect(() => {
-    const container = previewContainerRef.current;
-    if (!container) return;
-
-    const computeFitScale = () => {
-      const rect = container.getBoundingClientRect();
-      // 预览区宽度 420px - padding 12*2 - border 1*2 = 394px 可用
-      const availW = rect.width - 30;
-      const availH = rect.height - 60;
-      const s = Math.min(1, availW / template.canvasWidth, availH / template.canvasHeight);
-      setFitScale(Math.max(0.1, Math.round(s * 100) / 100));
-    };
-
-    computeFitScale();
-    const observer = new ResizeObserver(computeFitScale);
-    observer.observe(container);
-    return () => observer.disconnect();
-  }, [template.canvasWidth, template.canvasHeight]);
-
-  // 画布尺寸变化时自动适配
-  useEffect(() => {
-    setScale(fitScale);
-  }, [fitScale]);
-
-  // 鼠标滚轮缩放（以左上角为中心点）
-  const handleWheel = useCallback(
-    (e: React.WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-        e.stopPropagation();
-        const delta = e.deltaY > 0 ? -0.05 : 0.05;
-        setScale((s) => Math.max(0.1, Math.min(3, Math.round((s + delta) * 100) / 100)));
-      }
-    },
-    [],
-  );
-
-  const handleFitScreen = useCallback(() => {
-    setScale(fitScale);
-  }, [fitScale]);
-
-  const loadImage = (src: string): Promise<HTMLImageElement> => {
-    return new Promise((resolve, reject) => {
-      const img = new window.Image();
-      img.onload = () => resolve(img);
-      img.onerror = () => reject(new Error(`Failed to load image: ${src}`));
-      img.src = src;
-    });
-  };
 
   const uploadBlob = async (blob: Blob, variableKey: string) => {
     const fd = new FormData();
@@ -164,93 +139,34 @@ export default function GenerateTemplateClient({ template }: { template: Templat
   const downloadPoster = async () => {
     setIsGenerating(true);
     try {
-      const dpr = 2;
-      const canvas = document.createElement("canvas");
-      canvas.width = template.canvasWidth * dpr;
-      canvas.height = template.canvasHeight * dpr;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) { alert("无法创建画布上下文"); return; }
-      ctx.scale(dpr, dpr);
-
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, template.canvasWidth, template.canvasHeight);
-
-      if (template.backgroundImage && !isEmptyImageSrc(template.backgroundImage)) {
-        try {
-          const bgImg = await loadImage(template.backgroundImage);
-          ctx.drawImage(bgImg, 0, 0, template.canvasWidth, template.canvasHeight);
-        } catch { /* ignore */ }
+      const node = previewCaptureRef.current;
+      if (!node) {
+        alert("导出未就绪，请稍后重试");
+        return;
       }
-
-      const sortedElements = template.elements.slice().sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
-
-      for (const el of sortedElements) {
-        if (el.type === "image") {
-          const src = variables[el.variableKey] ?? el.src ?? "";
-          if (src && !isEmptyImageSrc(src)) {
-            try {
-              const img = await loadImage(src);
-              ctx.drawImage(img, el.x, el.y, el.width, el.height);
-            } catch { /* ignore */ }
-          }
-        } else {
-          const text = variables[el.variableKey] ?? el.defaultText ?? "";
-          const fontSize = el.fontSize ?? 32;
-          const color = el.color ?? "#111827";
-          const maxLines = el.maxLines ?? 2;
-          const textAlign = el.textAlign ?? "left";
-          const verticalAlign = el.verticalAlign ?? "top";
-
-          ctx.save();
-          ctx.font = `${fontSize}px system-ui, sans-serif`;
-          ctx.fillStyle = color;
-          ctx.textAlign = textAlign;
-
-          const words = text.split("");
-          const lineHeight = fontSize * 1.15;
-          const maxWidth = el.width;
-          let line = "";
-          const lines: string[] = [];
-
-          for (const char of words) {
-            const testLine = line + char;
-            const metrics = ctx.measureText(testLine);
-            if (metrics.width > maxWidth && line) {
-              lines.push(line);
-              line = char;
-            } else {
-              line = testLine;
-            }
-          }
-          if (line) lines.push(line);
-          if (lines.length > maxLines) lines.length = maxLines;
-
-          const totalHeight = lines.length * lineHeight;
-          let startY: number;
-          if (verticalAlign === "bottom") {
-            startY = el.y + el.height - totalHeight + fontSize;
-          } else if (verticalAlign === "center") {
-            startY = el.y + (el.height - totalHeight) / 2 + fontSize;
-          } else {
-            startY = el.y + fontSize;
-          }
-
-          let baseX: number;
-          if (textAlign === "center") {
-            baseX = el.x + el.width / 2;
-          } else if (textAlign === "right") {
-            baseX = el.x + el.width;
-          } else {
-            baseX = el.x;
-          }
-          for (let i = 0; i < lines.length; i++) ctx.fillText(lines[i], baseX, startY + i * lineHeight);
-          ctx.restore();
-        }
-      }
-
+      await document.fonts.ready;
+      // 等待画布内图片解码，避免截到空白
+      await Promise.all(
+        Array.from(node.querySelectorAll("img")).map(
+          (img) =>
+            img.complete
+              ? Promise.resolve()
+              : new Promise<void>((res, rej) => {
+                  img.onload = () => res();
+                  img.onerror = () => res();
+                }),
+        ),
+      );
+      const dataUrl = await toPng(node, {
+        pixelRatio: 2,
+        width: template.canvasWidth,
+        height: template.canvasHeight,
+        cacheBust: true,
+        backgroundColor: "#ffffff",
+      });
       const link = document.createElement("a");
       link.download = `${template.name}-${Date.now()}.png`;
-      link.href = canvas.toDataURL("image/png");
+      link.href = dataUrl;
       link.click();
     } catch (err) {
       console.error(err);
@@ -261,7 +177,7 @@ export default function GenerateTemplateClient({ template }: { template: Templat
   };
 
   return (
-    <div className="min-h-screen bg-zinc-50 p-6">
+    <div suppressHydrationWarning className="min-h-screen bg-zinc-50 p-6">
       <div className="mx-auto max-w-6xl">
         {/* 顶部标题 */}
         <div className="mb-4 flex items-center justify-between gap-4">
@@ -271,53 +187,71 @@ export default function GenerateTemplateClient({ template }: { template: Templat
           </div>
         </div>
 
-        <div className="flex items-start gap-6">
-          {/* 左侧：最终预览 */}
-          <div className="w-[420px] shrink-0">
-            <div className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
-              <div className="mb-2 flex items-center justify-between">
+        {/* 方案一：简单响应式布局 - 小屏幕纵向排列，大屏幕横向排列 */}
+        <div className="flex flex-col md:flex-row md:items-start gap-6">
+          {/* 左侧：预览区域 - 小屏幕全宽自适应，大屏幕固定宽度 */}
+          <div className="md:shrink-0" style={{ width: `min(100%, ${previewWidth}px)` }}>
+            <div
+              suppressHydrationWarning
+              className="flex flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm"
+              style={{ height: (template.canvasHeight / template.canvasWidth) * previewWidth + 52 }}
+            >
+              <div className="flex shrink-0 items-center justify-between border-b border-zinc-100 px-3 py-2">
                 <div className="text-xs font-semibold text-zinc-700">最终生成</div>
                 <button
                   type="button"
                   onClick={downloadPoster}
                   disabled={isGenerating}
-                  className="flex items-center gap-1.5 rounded-lg bg-black px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+                  className="flex items-center gap-1.5 rounded-lg bg-black px-2 py-1 text-[11px] font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
                 >
-                  <Download className="h-3.5 w-3.5" />
+                  <Download className="h-3 w-3" />
                   {isGenerating ? "生成中..." : "保存图片"}
                 </button>
               </div>
-              <div ref={previewContainerRef} className="overflow-auto rounded-xl border border-zinc-200" style={{ minHeight: 300 }} onWheel={handleWheel}>
+              {/* 预览画布：居中显示，保持完整比例 */}
+              <div
+                suppressHydrationWarning
+                className="flex flex-1 items-center justify-center overflow-hidden bg-zinc-100/80 p-3"
+              >
                 <div
+                  suppressHydrationWarning
+                  className="relative shrink-0"
                   style={{
-                    transform: `scale(${scale})`,
-                    transformOrigin: "top left",
-                    flexShrink: 0,
+                    width: previewWidth,
+                    height: (template.canvasHeight / template.canvasWidth) * previewWidth,
                   }}
                 >
-                  <PosterCanvasStatic
-                    canvasSize={{ w: template.canvasWidth, h: template.canvasHeight }}
-                    elements={template.elements}
-                    values={variables}
-                    backgroundImage={template.backgroundImage}
-                  />
+                  <div
+                    className="absolute left-0 top-0 origin-top-left"
+                    style={{
+                      width: template.canvasWidth,
+                      height: template.canvasHeight,
+                      transform: `scale(${previewWidth / template.canvasWidth})`,
+                    }}
+                  >
+                    <div
+                      ref={previewCaptureRef}
+                      className="inline-block"
+                      style={{
+                        width: template.canvasWidth,
+                        height: template.canvasHeight,
+                      }}
+                    >
+                      <PosterCanvasStatic
+                        canvasSize={{ w: template.canvasWidth, h: template.canvasHeight }}
+                        elements={template.elements}
+                        values={variables}
+                        backgroundImage={template.backgroundImage}
+                      />
+                    </div>
+                  </div>
                 </div>
-              </div>
-              {/* 缩放控件 */}
-              <div className="mt-2 flex items-center justify-center gap-1.5">
-                <div className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-500 tabular-nums">
-                  {Math.round(scale * 100)}%
-                </div>
-                <button type="button" onClick={handleFitScreen} className="flex h-7 items-center justify-center gap-1 rounded-lg border border-zinc-200 bg-white px-2 text-xs text-zinc-500 hover:bg-zinc-50" title="适应屏幕">
-                  <Maximize className="h-3.5 w-3.5" />
-                  适应
-                </button>
               </div>
             </div>
           </div>
 
-          {/* 右侧：元素信息输入 */}
-          <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+          {/* 右侧：元素信息输入 - 小屏幕全宽，大屏幕自适应剩余空间 */}
+          <div className="flex-1 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm md:min-w-0">
             <div className="text-sm font-semibold text-zinc-900">元素信息输入</div>
             <div className="mt-1 text-xs text-zinc-400">按变量名填充图片或文字；图片显示方式沿用模板中的设置</div>
 

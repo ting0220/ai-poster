@@ -1,8 +1,7 @@
-import React from "react";
 import { prisma } from "@/app/_lib/prisma";
-import TemplateEditorClient from "@/app/templates/_components/TemplateEditorClient";
 import { isAuthenticated } from "@/app/_lib/auth";
 import PasswordGate from "@/app/_components/PasswordGate";
+import TemplateEditorClientWrapper from "@/app/templates/_components/TemplateEditorClientWrapper";
 
 export default async function EditTemplatePage({
   params,
@@ -50,12 +49,14 @@ export default async function EditTemplatePage({
       text: e.defaultText ?? "",
       fontSize: e.fontSize ?? 32,
       color: e.color ?? "#111827",
-      maxLines: e.maxLines ?? 2,
+      fontFamily: e.fontFamily ?? undefined,
+      textAlign: (e.textAlign as "left" | "center" | "right" | undefined) ?? "left",
+      verticalAlign: (e.verticalAlign as "top" | "center" | "bottom" | undefined) ?? "top",
     };
   });
 
   return (
-    <TemplateEditorClient
+    <TemplateEditorClientWrapper
       templateId={template.id}
       initialName={template.name}
       initialCanvasSize={{ w: template.canvasWidth, h: template.canvasHeight }}

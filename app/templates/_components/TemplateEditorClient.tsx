@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import PosterBuilder, { type PosterTemplateSnapshot } from "@/app/_components/poster/PosterBuilder";
-import type { PosterElement } from "@/app/_components/poster/posterTypes";
+import type { PosterElement, PosterTextElement } from "@/app/_components/poster/posterTypes";
 
 type TemplateEditorClientProps = {
   templateId?: string;
@@ -36,20 +36,25 @@ export default function TemplateEditorClient({
 
   const payloadElements = useMemo(() => {
     if (!snapshot) return [];
-    return snapshot.elements.map((e) => ({
-      type: e.type,
-      x: e.x,
-      y: e.y,
-      width: e.width,
-      height: e.height,
-      zIndex: e.zIndex,
-      variableKey: e.variableKey,
-      src: e.type === "image" ? e.src : null,
-      defaultText: e.type === "text" ? e.text : null,
-      fontSize: e.type === "text" ? e.fontSize : null,
-      color: e.type === "text" ? e.color : null,
-      maxLines: e.type === "text" ? e.maxLines : null,
-    }));
+    return snapshot.elements.map((e) => {
+      const textEl = e.type === "text" ? (e as PosterTextElement) : null;
+      return {
+        type: e.type,
+        x: e.x,
+        y: e.y,
+        width: e.width,
+        height: e.height,
+        zIndex: e.zIndex,
+        variableKey: e.variableKey,
+        src: e.type === "image" ? (e as { src: string }).src : null,
+        defaultText: textEl ? textEl.text : null,
+        fontSize: textEl ? textEl.fontSize : null,
+        color: textEl ? textEl.color : null,
+        fontFamily: textEl ? (textEl.fontFamily ?? null) : null,
+        textAlign: textEl ? textEl.textAlign : null,
+        verticalAlign: textEl ? textEl.verticalAlign : null,
+      };
+    });
   }, [snapshot]);
 
   const onBackgroundChange = useCallback((url: string | null) => {

@@ -1,6 +1,10 @@
 import React from "react";
+import dynamic from "next/dynamic";
 import { prisma } from "@/app/_lib/prisma";
-import GenerateTemplateClient from "@/app/templates/_components/GenerateTemplateClient";
+
+const GenerateTemplateClient = dynamic(
+  () => import("@/app/templates/_components/GenerateTemplateClient")
+);
 
 export default async function GenerateTemplatePage({
   params,
@@ -42,7 +46,9 @@ export default async function GenerateTemplatePage({
       defaultText: e.defaultText,
       fontSize: e.fontSize,
       color: e.color,
-      maxLines: e.maxLines,
+      fontFamily: e.fontFamily ?? undefined,
+      textAlign: e.textAlign as "left" | "center" | "right" | undefined ?? undefined,
+      verticalAlign: e.verticalAlign as "top" | "center" | "bottom" | undefined ?? undefined,
     };
   });
 

@@ -44,7 +44,9 @@ export async function PUT(
       defaultText?: string | null;
       fontSize?: number | null;
       color?: string | null;
-      maxLines?: number | null;
+      fontFamily?: string | null;
+      textAlign?: string | null;
+      verticalAlign?: string | null;
     }>;
   };
 
@@ -82,7 +84,9 @@ export async function PUT(
           defaultText: e.type === "text" ? (e.defaultText ?? "") : null,
           fontSize: e.type === "text" ? (e.fontSize ?? null) : null,
           color: e.type === "text" ? (e.color ?? null) : null,
-          maxLines: e.type === "text" ? (e.maxLines ?? null) : null,
+          fontFamily: e.type === "text" ? (e.fontFamily ?? null) : null,
+          textAlign: e.type === "text" ? (e.textAlign ?? null) : null,
+          verticalAlign: e.type === "text" ? (e.verticalAlign ?? null) : null,
         })),
       },
     },
