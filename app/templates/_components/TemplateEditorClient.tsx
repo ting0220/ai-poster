@@ -116,7 +116,6 @@ export default function TemplateEditorClient({
     }
 
     alert("保存成功");
-    window.location.href = "/templates";
   };
 
   if (!snapshot) return null;

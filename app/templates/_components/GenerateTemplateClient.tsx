@@ -194,55 +194,51 @@ export default function GenerateTemplateClient({ template }: { template: Templat
             <div
               suppressHydrationWarning
               className="flex flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm"
-              style={{ height: (template.canvasHeight / template.canvasWidth) * previewWidth + 52 }}
+              style={{ height: (template.canvasHeight / template.canvasWidth) * previewWidth + 44 }}
             >
               <div className="flex shrink-0 items-center justify-between border-b border-zinc-100 px-3 py-2">
                 <div className="text-xs font-semibold text-zinc-700">最终生成</div>
-                <button
-                  type="button"
-                  onClick={downloadPoster}
-                  disabled={isGenerating}
-                  className="flex items-center gap-1.5 rounded-lg bg-black px-2 py-1 text-[11px] font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
-                >
-                  <Download className="h-3 w-3" />
-                  {isGenerating ? "生成中..." : "保存图片"}
-                </button>
               </div>
-              {/* 预览画布：居中显示，保持完整比例 */}
+              {/* 预览画布：撑满剩余空间 */}
               <div
                 suppressHydrationWarning
-                className="flex flex-1 items-center justify-center overflow-hidden bg-zinc-100/80 p-3"
+                className="relative flex-1 overflow-hidden bg-zinc-100/80"
               >
                 <div
                   suppressHydrationWarning
-                  className="relative shrink-0"
-                  style={{
-                    width: previewWidth,
-                    height: (template.canvasHeight / template.canvasWidth) * previewWidth,
-                  }}
+                  className="absolute inset-0 flex items-center justify-center"
                 >
                   <div
-                    className="absolute left-0 top-0 origin-top-left"
+                    suppressHydrationWarning
+                    className="relative shrink-0"
                     style={{
-                      width: template.canvasWidth,
-                      height: template.canvasHeight,
-                      transform: `scale(${previewWidth / template.canvasWidth})`,
+                      width: previewWidth,
+                      height: (template.canvasHeight / template.canvasWidth) * previewWidth,
                     }}
                   >
                     <div
-                      ref={previewCaptureRef}
-                      className="inline-block"
+                      className="absolute left-0 top-0 origin-top-left"
                       style={{
                         width: template.canvasWidth,
                         height: template.canvasHeight,
+                        transform: `scale(${previewWidth / template.canvasWidth})`,
                       }}
                     >
-                      <PosterCanvasStatic
-                        canvasSize={{ w: template.canvasWidth, h: template.canvasHeight }}
-                        elements={template.elements}
-                        values={variables}
-                        backgroundImage={template.backgroundImage}
-                      />
+                      <div
+                        ref={previewCaptureRef}
+                        className="inline-block"
+                        style={{
+                          width: template.canvasWidth,
+                          height: template.canvasHeight,
+                        }}
+                      >
+                        <PosterCanvasStatic
+                          canvasSize={{ w: template.canvasWidth, h: template.canvasHeight }}
+                          elements={template.elements}
+                          values={variables}
+                          backgroundImage={template.backgroundImage}
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -250,9 +246,11 @@ export default function GenerateTemplateClient({ template }: { template: Templat
             </div>
           </div>
 
-          {/* 右侧：元素信息输入 - 小屏幕全宽，大屏幕自适应剩余空间 */}
-          <div className="flex-1 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm md:min-w-0">
-            <div className="text-sm font-semibold text-zinc-900">元素信息输入</div>
+          {/* 右侧父容器 - 纵向布局 */}
+          <div className="flex flex-col flex-1 gap-5 md:min-w-0">
+            {/* 元素信息输入 */}
+            <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+              <div className="text-sm font-semibold text-zinc-900">元素信息输入</div>
             <div className="mt-1 text-xs text-zinc-400">按变量名填充图片或文字；图片显示方式沿用模板中的设置</div>
 
             <div className="mt-4 space-y-4">
@@ -388,6 +386,21 @@ export default function GenerateTemplateClient({ template }: { template: Templat
                 );
               })}
             </div>
+            </div>
+
+<div className="flex items-center justify-center">
+{/* 保存按钮 */}
+            <button
+              type="button"
+              onClick={downloadPoster}
+              disabled={isGenerating}
+              className="flex items-center justify-center gap-2 self-start rounded-xl bg-zinc-900 px-6 py-3 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+            >
+              <Download className="h-4 w-4" />
+              {isGenerating ? "生成中..." : "保存图片"}
+            </button>
+</div>
+            
           </div>
         </div>
       </div>

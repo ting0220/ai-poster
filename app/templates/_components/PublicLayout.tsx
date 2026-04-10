@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Type, LayoutGrid, ChevronRight } from "lucide-react";
+import { LayoutGrid, Type, ChevronRight } from "lucide-react";
 
 type NavItem = {
   id: string;
@@ -33,8 +33,17 @@ const navItems: NavItem[] = [
   },
 ];
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+type Props = {
+  children: React.ReactNode;
+  title?: string;
+  subtitle?: string;
+};
+
+export default function PublicLayout({ children, title = "海报生成系统", subtitle = "选择模板生成海报" }: Props) {
   const pathname = usePathname();
+  const isAdminRoute = pathname.startsWith("/admin");
+  const headerTitle = isAdminRoute ? "管理后台" : title;
+  const headerSubtitle = isAdminRoute ? "海报生成系统" : subtitle;
 
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-50">
@@ -47,8 +56,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               <LayoutGrid className="h-4 w-4" />
             </div>
             <div>
-              <div className="text-sm font-semibold text-zinc-900">管理后台</div>
-              <div className="text-xs text-zinc-500">海报生成系统</div>
+              <div className="text-sm font-semibold text-zinc-900">{headerTitle}</div>
+              <div className="text-xs text-zinc-500">{headerSubtitle}</div>
             </div>
           </div>
         </div>
