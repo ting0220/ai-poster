@@ -90,36 +90,36 @@ export default function ImageCropper({
           ref={cropperRef}
           src={imageUrl}
           style={{ maxHeight: 420 }}
-          viewMode={1}
-          dragMode="crop"
+          viewMode={0}
+          dragMode="move"
           aspectRatio={ASPECT_RATIO}
           guides={true}
           highlight={false}
-          cropBoxMovable={true}
+          cropBoxMovable={false}
           cropBoxResizable={true}
           toggleDragModeOnDblclick={false}
-          autoCropArea={1}
+          autoCropArea={0.9}
           ready={() => {
             const cropper = cropperRef.current?.cropper;
             if (!cropper) return;
-            // 初始化：宽图撑满宽，高图撑满高，居中裁切
-            if (ASPECT_RATIO > 1) {
-              // 宽图：裁剪框宽=图片宽，高等比例
+            // 延迟一帧执行，确保图片已完全加载并布局完成
+            requestAnimationFrame(() => {
+              const containerData = cropper.getContainerData();
+              const imageData = cropper.getImageData();
+              if (!imageData.naturalWidth) return;
+
+              // 宽图：裁剪框宽=图片宽，高等比例，居中
+              // 高图：裁剪框高=图片高，宽等比例，居中
+              const cropBoxWidth = imageData.width;
+              const cropBoxHeight = imageData.width / ASPECT_RATIO;
+
               cropper.setCropBoxData({
-                left: 0,
-                top: (cropper.getContainerData().height - cropper.getContainerData().width / ASPECT_RATIO) / 2,
-                width: cropper.getContainerData().width,
-                height: cropper.getContainerData().width / ASPECT_RATIO,
+                left: imageData.left,
+                top: imageData.top + (imageData.height - cropBoxHeight) / 2,
+                width: cropBoxWidth,
+                height: cropBoxHeight,
               });
-            } else {
-              // 高图：裁剪框高=图片高，宽等比例
-              cropper.setCropBoxData({
-                left: (cropper.getContainerData().width - cropper.getContainerData().height * ASPECT_RATIO) / 2,
-                top: 0,
-                width: cropper.getContainerData().height * ASPECT_RATIO,
-                height: cropper.getContainerData().height,
-              });
-            }
+            });
           }}
         />
       </div>

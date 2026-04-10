@@ -73,7 +73,7 @@ export default function PosterCanvasStatic({
                 {src ? (
                   <img className="h-full w-full object-cover" src={src} alt="poster image" draggable={false} />
                 ) : (
-                  <div className="h-full w-full rounded-md border border-dashed border-zinc-300 bg-zinc-50" />
+                  <div className="h-full w-full border border-dashed border-zinc-300 bg-zinc-50" />
                 )}
               </div>
             );
@@ -93,7 +93,7 @@ export default function PosterCanvasStatic({
               style={{ left, top, width: el.width, height: el.height, zIndex: el.zIndex }}
             >
               <div
-                className="flex h-full min-h-0 w-full flex-col p-0"
+                className="flex h-full min-h-0 w-full flex-col"
                 style={{
                   fontSize,
                   color,

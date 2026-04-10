@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Image as ImageIcon, Type as TypeIcon, GripHorizontal, Upload, X, Layers, Trash2, Type, ChevronDown, Loader2, Trash } from "lucide-react";
+import { Image as ImageIcon, Type as TypeIcon, GripHorizontal, Upload, X, Layers, Trash2, ChevronDown, Undo2 } from "lucide-react";
 import { Rnd } from "react-rnd";
 import type {
   PosterElement,
@@ -28,7 +28,7 @@ function ImageSlotPlaceholder({ compact }: { compact?: boolean }) {
   return (
     <div
       className={[
-        "flex h-full min-h-0 w-full flex-col items-center justify-center gap-1 rounded-md border border-dashed border-zinc-300/80 bg-zinc-50/80 text-zinc-400",
+        "flex h-full min-h-0 w-full flex-col items-center justify-center gap-1 border border-dashed border-zinc-300/80 bg-zinc-50/80 text-zinc-400",
         compact ? "py-6" : "py-2",
       ].join(" ")}
     >
@@ -49,10 +49,10 @@ function toNumber(input: string, fallback: number) {
 }
 
 function applyBounds(next: PosterElement, bounds: { w: number; h: number }): PosterElement {
-  const width = clamp(next.width, SIZE_MIN, ELEMENT_SIZE_MAX);
-  const height = clamp(next.height, SIZE_MIN, ELEMENT_SIZE_MAX);
-  const x = clamp(next.x, 0, Math.max(0, bounds.w - width));
-  const y = clamp(next.y, 0, Math.max(0, bounds.h - height));
+  const width = Math.round(clamp(next.width, SIZE_MIN, ELEMENT_SIZE_MAX));
+  const height = Math.round(clamp(next.height, SIZE_MIN, ELEMENT_SIZE_MAX));
+  const x = Math.round(clamp(next.x, 0, Math.max(0, bounds.w - width)));
+  const y = Math.round(clamp(next.y, 0, Math.max(0, bounds.h - height)));
   return { ...next, x, y, width, height };
 }
 
@@ -273,15 +273,6 @@ function ElementEditor({ element, onChange, onDelete, fonts }: ElementEditorProp
         </label>
       </div>
 
-      <div className="rounded-xl border border-zinc-200 bg-white/80 p-3">
-        <div className="mb-2 text-xs font-medium text-zinc-700">图层顺序（zIndex）</div>
-        <CommitNumberField
-          label="zIndex"
-          value={element.zIndex}
-          onCommit={(next) => onChange({ zIndex: next })}
-        />
-      </div>
-
       {element.type === "text" ? (
         <div className="rounded-xl border border-zinc-200 bg-white/80 p-3">
           <div className="mb-2 text-xs font-medium text-zinc-700">文本内容</div>
@@ -436,11 +427,59 @@ export default function PosterBuilder({
   const [elements, setElements] = useState<PosterElement[]>(initialElements ?? []);
   const [backgroundImage, setBackgroundImage] = useState<string | null>(initialBackgroundImage ?? null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // 标记当前是否发生了真实拖拽（用于区分 click 和 drag）
+  const didDragRef = useRef(false);
   const [canvasSize, setCanvasSize] = useState<{ w: number; h: number }>(
     initialCanvasSize ?? { w: 375, h: 750 },
   );
   const [scale, setScale] = useState<number>(1);
   const [scaleInput, setScaleInput] = useState<string>("100%");
+
+  // 撤销历史记录
+  const [history, setHistory] = useState<{ elements: PosterElement[]; canvasSize: { w: number; h: number }; backgroundImage: string | null }[]>([]);
+  const [historyIndex, setHistoryIndex] = useState<number>(-1);
+  const isUndoingRef = useRef(false);
+
+  // 保存当前状态到历史记录
+  const saveHistory = useCallback(() => {
+    if (isUndoingRef.current) return;
+    setHistory((prev) => {
+      const newState = { elements, canvasSize, backgroundImage };
+      // 限制历史记录数量，最多保存 50 步
+      const sliced = prev.slice(0, historyIndex + 1);
+      const newHistory = [...sliced, newState];
+      if (newHistory.length > 50) {
+        newHistory.shift();
+      }
+      return newHistory;
+    });
+    setHistoryIndex((prev) => Math.min(prev + 1, 49));
+  }, [elements, canvasSize, backgroundImage, historyIndex]);
+
+  // 撤销操作
+  const undo = useCallback(() => {
+    if (historyIndex <= 0) return;
+    isUndoingRef.current = true;
+    const prevState = history[historyIndex - 1];
+    if (prevState) {
+      setElements(prevState.elements);
+      setCanvasSize(prevState.canvasSize);
+      setBackgroundImage(prevState.backgroundImage);
+      setHistoryIndex(historyIndex - 1);
+    }
+    // 延迟重置标记，确保状态更新完成
+    setTimeout(() => {
+      isUndoingRef.current = false;
+    }, 0);
+  }, [history, historyIndex]);
+
+  // 初始化历史记录
+  useEffect(() => {
+    if (history.length === 0) {
+      setHistory([{ elements: initialElements ?? [], canvasSize: initialCanvasSize ?? { w: 375, h: 750 }, backgroundImage: initialBackgroundImage ?? null }]);
+      setHistoryIndex(0);
+    }
+  }, []);
 
   /** 计算并应用「适应屏幕」缩放：让画布完整显示在滚动容器内 */
   const applyFitScale = useCallback((size?: { w: number; h: number }) => {
@@ -458,11 +497,8 @@ export default function PosterBuilder({
     setScale(clamped);
   }, [canvasSize]);
 
-  // 字体管理
-  const { fonts, loading: fontsLoading, uploading: fontUploading, error: fontError, uploadFont, deleteFont } = useFonts();
-  const [showFontManager, setShowFontManager] = useState(false);
-  const [fontUploadName, setFontUploadName] = useState("");
-  const [fontUploadError, setFontUploadError] = useState<string | null>(null);
+  // 字体管理（仅加载字体列表，不显示管理 UI）
+  const { fonts } = useFonts();
 
   // 同步背景图 prop 变化到内部 state
   useEffect(() => {
@@ -499,8 +535,11 @@ export default function PosterBuilder({
         if (merged.height > ELEMENT_SIZE_MAX) warnings.push(`${kind}高度最大不要超出${ELEMENT_SIZE_MAX}`);
         if (warnings.length) window.alert(warnings.join("\n"));
 
-        merged.width = clamp(merged.width, SIZE_MIN, ELEMENT_SIZE_MAX);
-        merged.height = clamp(merged.height, SIZE_MIN, ELEMENT_SIZE_MAX);
+        // 对 x、y、width、height 取整，避免小数导致缩放后尺寸漂移
+        if (typeof patch.x === "number") merged.x = Math.round(merged.x);
+        if (typeof patch.y === "number") merged.y = Math.round(merged.y);
+        if (typeof patch.width === "number") merged.width = Math.round(clamp(merged.width, SIZE_MIN, ELEMENT_SIZE_MAX));
+        if (typeof patch.height === "number") merged.height = Math.round(clamp(merged.height, SIZE_MIN, ELEMENT_SIZE_MAX));
 
         if (merged.type === "text") {
           merged.fontSize = clamp(merged.fontSize, 8, 180);
@@ -563,6 +602,34 @@ export default function PosterBuilder({
     return () => container.removeEventListener("wheel", handler);
   }, []);
 
+  // 键盘快捷键：Delete 删除元素，Ctrl+Z 撤销
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // 如果正在输入框中，不处理快捷键（除了 Ctrl+Z）
+      const active = document.activeElement;
+      const isInput = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.getAttribute("contenteditable") === "true");
+      
+      // Ctrl+Z / Cmd+Z 撤销
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+        return;
+      }
+      
+      if (isInput) return;
+      
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (selectedId) {
+          saveHistory();
+          setElements((prev) => prev.filter((el) => el.id !== selectedId));
+          setSelectedId(null);
+        }
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [selectedId, undo, saveHistory]);
+
   // scale 变化时同步输入框（非用户手动编辑时）
   const scaleInputRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
@@ -572,26 +639,27 @@ export default function PosterBuilder({
   }, [scale]);
 
   const addElementAt = (type: PosterElement["type"], clientX: number, clientY: number) => {
+    saveHistory();
     const bounds = getBounds();
     const node = posterRef.current;
     if (!node) return;
     const r = node.getBoundingClientRect();
-    // 视觉像素转画布坐标：除以当前缩放比例
-    const x = (clientX - r.left) / scale;
-    const y = (clientY - r.top) / scale;
+    // 屏幕像素转画布坐标：除以 scale
+    const x = Math.round((clientX - r.left) / scale);
+    const y = Math.round((clientY - r.top) / scale);
 
     const id = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     if (type === "image") {
       const el: PosterImageElement = {
         id,
         type,
-      src: "",
-      x: clamp(x - 20, 0, Math.max(0, bounds.w - 220)),
-      y: clamp(y - 20, 0, Math.max(0, bounds.h - 140)),
-      width: 220,
-      height: 140,
-      zIndex: 0,
-      variableKey: "",
+        src: "",
+        x: clamp(x - 20, 0, Math.max(0, bounds.w - 220)),
+        y: clamp(y - 20, 0, Math.max(0, bounds.h - 140)),
+        width: 220,
+        height: 140,
+        zIndex: 0,
+        variableKey: "",
       };
       setElements((prev) => [...prev, applyBounds(el, bounds)]);
       setSelectedId(id);
@@ -639,8 +707,19 @@ export default function PosterBuilder({
               <div className="text-sm font-semibold text-zinc-900">工具栏</div>
               <div className="mt-1 text-xs text-zinc-500">拖拽到右侧画布</div>
             </div>
-            <div className="rounded-xl bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700">
-              Prototype
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={undo}
+                disabled={historyIndex <= 0}
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                title="撤销 (Ctrl+Z)"
+              >
+                <Undo2 className="h-4 w-4" />
+              </button>
+              <div className="rounded-xl bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700">
+                Prototype
+              </div>
             </div>
           </div>
 
@@ -678,26 +757,6 @@ export default function PosterBuilder({
                 <div className="text-xs text-zinc-500">拖拽生成文字块</div>
               </div>
             </div>
-          </div>
-
-          {/* 字体管理入口 */}
-          <div className="mt-4">
-            <button
-              type="button"
-              onClick={() => setShowFontManager(true)}
-              className="flex w-full items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-left shadow-sm hover:border-zinc-300 hover:bg-zinc-50"
-            >
-              <div className="grid h-8 w-8 place-items-center rounded-lg bg-indigo-50 text-indigo-600">
-                <Type className="h-4 w-4" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-zinc-900">字体管理</div>
-                <div className="text-xs text-zinc-500">
-                  {fontsLoading ? "加载中…" : `${fonts.length} 个字体`}
-                </div>
-              </div>
-              <ChevronDown className="h-3.5 w-3.5 text-zinc-400 -rotate-90" />
-            </button>
           </div>
 
           <div className="mt-6 rounded-xl border border-zinc-200 bg-white/70 p-3">
@@ -799,310 +858,248 @@ export default function PosterBuilder({
         </aside>
 
         <main className="relative flex h-full flex-1 overflow-hidden bg-zinc-200/60">
-          {/* 缩放控件 - 右上角绝对定位 */}
-          <div className="absolute right-6 top-6 z-10 flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => applyFitScale()}
-              className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-xs font-medium text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50"
-              title="适应屏幕"
-            >
-              适应
-            </button>
-            <input
-              ref={scaleInputRef}
-              className="w-[52px] rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-right text-xs font-medium text-zinc-600 outline-none tabular-nums focus:border-zinc-400"
-              value={scaleInput}
-              onChange={(e) => {
-                setScaleInput(e.target.value);
-              }}
-              onBlur={() => {
-                const raw = scaleInput.replace(/%/g, "").trim();
-                if (raw === "") {
-                  setScaleInput(`${Math.round(scale * 100)}%`);
-                  return;
-                }
-                const n = Number(raw);
-                if (!Number.isFinite(n) || n <= 0) {
-                  setScaleInput(`${Math.round(scale * 100)}%`);
-                  return;
-                }
-                const clamped = Math.max(10, Math.min(300, Math.round(n)));
-                const newScale = clamped / 100;
-                setScale(newScale);
-                setScaleInput(`${clamped}%`);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  scaleInputRef.current?.blur();
-                }
-              }}
-            />
-          </div>
-
-          <div className="h-full p-6">
-            {/* 画布滚动区域 */}
-            <div
-              ref={scrollContainerRef}
-              className="h-full overflow-auto"
-            >
-              <div
-                className="relative rounded-2xl bg-zinc-200/40 p-6 shadow-sm"
-                style={{
-                  zoom: scale,
-                  width: canvasSize.w + 48,
-                  height: canvasSize.h + 48,
-                  flexShrink: 0,
-                }}
-              >
-                <div
-                  ref={posterRef}
-                  onDrop={onDrop}
-                  onDragOver={onDragOver}
-                  onMouseDown={(e) => {
-                    if (e.target === e.currentTarget) setSelectedId(null);
-                  }}
-                  className="relative overflow-hidden rounded-xl bg-white"
-                  style={{ width: canvasSize.w, height: canvasSize.h }}
-                >
-                  {backgroundImage && (
-                    <img
-                      className="absolute inset-0 h-full w-full object-cover"
-                      src={backgroundImage}
-                      alt="背景图"
-                      draggable={false}
-                      style={{ zIndex: 0, pointerEvents: "none" }}
-                    />
-                  )}
-                  {elements.map((el) => {
-                    const isSelected = el.id === selectedId;
-                    return (
-                      <Rnd
-                        key={el.id}
-                        size={{ width: el.width, height: el.height }}
-                        position={{ x: el.x, y: el.y }}
-                        bounds="parent"
-                        scale={scale}
-                        minWidth={SIZE_MIN}
-                        minHeight={SIZE_MIN}
-                        enableResizing={isSelected}
-                        style={{ zIndex: el.zIndex }}
-                        dragHandleClassName="drag-handle"
-                        onDragStart={() => {
-                          setSelectedId(el.id);
-                        }}
-                        onDragStop={(_e, d) => {
-                          updateElement(el.id, { x: d.x, y: d.y });
-                        }}
-                        onResizeStop={(_e, _direction, ref, _delta, position) => {
-                          updateElement(el.id, {
-                            x: position.x,
-                            y: position.y,
-                            width: ref.offsetWidth / scale,
-                            height: ref.offsetHeight / scale,
-                          });
-                        }}
-                      >
-                        <div
-                          className={[
-                            "h-full w-full rounded-lg border border-transparent box-border drag-handle",
-                            isSelected
-                              ? "border-black/40 ring-2 ring-black/15"
-                              : "border-zinc-200 hover:border-zinc-300",
-                          ].join(" ")}
-                          onClick={() => {
-                            setSelectedId(el.id);
-                          }}
-                        >
-                          {el.type === "image" ? (
-                            isEmptyImageSrc(el.src) ? (
-                              <ImageSlotPlaceholder />
-                            ) : (
-                              <img
-                                className="h-full w-full object-cover"
-                                src={el.src}
-                                alt="poster image"
-                                draggable={false}
-                              />
-                            )
-                          ) : (
-                            <div
-                              className="flex h-full min-h-0 w-full flex-col p-2"
-                              style={{
-                                fontSize: el.fontSize,
-                                color: el.color,
-                                lineHeight: 1.15,
-                                wordBreak: "break-word",
-                                overflow: "hidden",
-                                fontFamily: (el as PosterTextElement).fontFamily || undefined,
-                              }}
-                            >
-                              {/* flex-1 占满剩余高度，否则内层高度贴内容，justify-content 无法产生上下留白 */}
-                              <div
-                                className="flex min-h-0 w-full flex-1 flex-col"
-                                style={{
-                                  justifyContent:
-                                    el.verticalAlign === "center"
-                                      ? "center"
-                                      : el.verticalAlign === "bottom"
-                                        ? "flex-end"
-                                        : "flex-start",
-                                  textAlign: el.textAlign,
-                                  overflow: "hidden",
-                                }}
-                              >
-                                {el.text || (
-                                  <span style={{ color: "#d4d4d8" }}>文本占位</span>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </Rnd>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {selected ? (
-            <div className="pointer-events-none absolute right-8 top-8 z-20 w-[320px]">
-              <div className="pointer-events-auto max-h-[calc(100vh-120px)] overflow-y-auto rounded-2xl border border-zinc-200 bg-white/85 p-4 shadow-sm backdrop-blur">
-                <ElementEditor element={selected} onChange={updateSelected} fonts={fonts} onDelete={() => {
-                    setElements((prev) => prev.filter((e) => e.id !== selected.id));
-                    setSelectedId(null);
-                  }} />
-              </div>
-            </div>
-          ) : null}
-        </main>
-      </div>
-
-      {/* 字体管理弹窗 */}
-      {showFontManager && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setShowFontManager(false);
-          }}
-        >
-          <div className="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl mx-4">
-            <div className="flex items-center justify-between mb-5">
-              <div className="flex items-center gap-2">
-                <div className="grid h-9 w-9 place-items-center rounded-xl bg-indigo-50 text-indigo-600">
-                  <Type className="h-5 w-5" />
-                </div>
-                <div>
-                  <div className="text-base font-semibold text-zinc-900">字体管理</div>
-                  <div className="text-xs text-zinc-500">上传字体后可在文本元素中使用</div>
-                </div>
-              </div>
+          {/* 中间画布区域 */}
+          <div className="flex h-full flex-1 flex-col">
+            {/* 缩放控件 - 预览图上方右侧 */}
+            <div className="flex items-center justify-end gap-1.5 px-6 py-3">
               <button
                 type="button"
-                onClick={() => setShowFontManager(false)}
-                className="flex h-8 w-8 items-center justify-center rounded-xl text-zinc-500 hover:bg-zinc-100"
+                onClick={() => applyFitScale()}
+                className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-xs font-medium text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50"
+                title="适应屏幕"
               >
-                <X className="h-4 w-4" />
+                适应
+              </button>
+              {/* 缩小按钮 */}
+              <button
+                type="button"
+                onClick={() => {
+                  setScale((s) => {
+                    const newScale = Math.max(0.1, Math.round((s - 0.05) * 100) / 100);
+                    return newScale;
+                  });
+                }}
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50"
+                title="缩小"
+              >
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              </button>
+              <input
+                ref={scaleInputRef}
+                className="w-[52px] rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-center text-xs font-medium text-zinc-600 outline-none tabular-nums focus:border-zinc-400"
+                value={scaleInput}
+                onChange={(e) => {
+                  setScaleInput(e.target.value);
+                }}
+                onBlur={() => {
+                  const raw = scaleInput.replace(/%/g, "").trim();
+                  if (raw === "") {
+                    setScaleInput(`${Math.round(scale * 100)}%`);
+                    return;
+                  }
+                  const n = Number(raw);
+                  if (!Number.isFinite(n) || n <= 0) {
+                    setScaleInput(`${Math.round(scale * 100)}%`);
+                    return;
+                  }
+                  const clamped = Math.max(10, Math.min(300, Math.round(n)));
+                  const newScale = clamped / 100;
+                  setScale(newScale);
+                  setScaleInput(`${clamped}%`);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    scaleInputRef.current?.blur();
+                  }
+                }}
+              />
+              {/* 放大按钮 */}
+              <button
+                type="button"
+                onClick={() => {
+                  setScale((s) => {
+                    const newScale = Math.min(3, Math.round((s + 0.05) * 100) / 100);
+                    return newScale;
+                  });
+                }}
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50"
+                title="放大"
+              >
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
               </button>
             </div>
 
-            {/* 上传新字体 */}
-            <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-4 mb-5">
-              <div className="text-xs font-medium text-zinc-700 mb-3">上传字体文件</div>
-              <div className="mb-2">
-                <label className="block">
-                  <div className="mb-1 text-xs text-zinc-600">字体名称（留空则使用文件名）</div>
-                  <input
-                    className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-sm text-zinc-900 outline-none focus:border-zinc-400"
-                    type="text"
-                    placeholder="例如：思源黑体"
-                    value={fontUploadName}
-                    onChange={(e) => setFontUploadName(e.target.value)}
-                  />
-                </label>
-              </div>
-              {fontUploadError && (
-                <div className="mb-2 text-xs text-red-500">{fontUploadError}</div>
-              )}
-              <label className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-white py-2.5 text-sm font-medium text-zinc-700 hover:border-zinc-400 hover:bg-zinc-50 transition-colors">
-                {fontUploading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    上传中…
-                  </>
-                ) : (
-                  <>
-                    <Upload className="h-4 w-4" />
-                    选择字体文件（.ttf .otf .woff .woff2）
-                  </>
-                )}
-                <input
-                  type="file"
-                  className="sr-only"
-                  accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2,application/font-woff,application/font-woff2,application/x-font-ttf,application/x-font-otf,application/octet-stream"
-                  disabled={fontUploading}
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    e.target.value = "";
-                    setFontUploadError(null);
-                    const result = await uploadFont(file, fontUploadName || undefined);
-                    if (result) {
-                      setFontUploadName("");
-                    } else {
-                      setFontUploadError(fontError ?? "上传失败");
-                    }
+            {/* 画布滚动区域 */}
+            <div className="flex-1 px-6 pb-6">
+              <div
+                ref={scrollContainerRef}
+                className="h-full overflow-auto"
+              >
+                <div
+                  className="relative rounded-2xl bg-zinc-200/40 p-6 shadow-sm"
+                  style={{
+                    zoom: scale,
+                    width: canvasSize.w + 48,
+                    height: canvasSize.h + 48,
+                    flexShrink: 0,
                   }}
-                />
-              </label>
-              <div className="mt-2 text-[11px] text-zinc-400">支持 TrueType (.ttf)、OpenType (.otf)、Web Open Font (.woff / .woff2)</div>
-            </div>
-
-            {/* 字体列表 */}
-            <div>
-              <div className="text-xs font-medium text-zinc-700 mb-2">
-                已上传字体
-                {fontsLoading && <Loader2 className="inline ml-1 h-3 w-3 animate-spin" />}
+                >
+                  <div
+                    ref={posterRef}
+                    onDrop={onDrop}
+                    onDragOver={onDragOver}
+                    onMouseDown={(e) => {
+                      if (e.target === e.currentTarget) setSelectedId(null);
+                    }}
+                    className="relative overflow-hidden rounded-xl bg-white"
+                    style={{ width: canvasSize.w, height: canvasSize.h }}
+                  >
+                    {backgroundImage && (
+                      <img
+                        className="absolute inset-0 h-full w-full object-cover"
+                        src={backgroundImage}
+                        alt="背景图"
+                        draggable={false}
+                        style={{ zIndex: 0, pointerEvents: "none" }}
+                      />
+                    )}
+                    {elements.map((el) => {
+                      const isSelected = el.id === selectedId;
+                      return (
+                        <Rnd
+                          key={el.id}
+                          size={{ width: el.width, height: el.height }}
+                          position={{ x: el.x, y: el.y }}
+                          bounds="parent"
+                          scale={scale}
+                          minWidth={SIZE_MIN}
+                          minHeight={SIZE_MIN}
+                          lockAspectRatio={false}
+                          enableResizing={true}
+                          disableDragging={false}
+                          style={{ zIndex: el.zIndex }}
+                          onDragStart={() => {
+                            didDragRef.current = true;
+                          }}
+                          onDragStop={(_e, d) => {
+                            if (didDragRef.current) {
+                              const newX = Math.round(d.x);
+                              const newY = Math.round(d.y);
+                              if (el.x !== newX || el.y !== newY) saveHistory();
+                              updateElement(el.id, { x: newX, y: newY });
+                            }
+                            didDragRef.current = false;
+                          }}
+                          onResizeStop={(_e, _direction, ref, _delta, position) => {
+                            const newX = Math.round(position.x);
+                            const newY = Math.round(position.y);
+                            const newWidth = Math.round(ref.offsetWidth);
+                            const newHeight = Math.round(ref.offsetHeight);
+                            if (
+                              el.x === newX &&
+                              el.y === newY &&
+                              el.width === newWidth &&
+                              el.height === newHeight
+                            ) return;
+                            saveHistory();
+                            updateElement(el.id, {
+                              x: newX,
+                              y: newY,
+                              width: newWidth,
+                              height: newHeight,
+                            });
+                          }}
+                        >
+                          <div
+                            className={[
+                              "h-full w-full rounded-lg border border-transparent box-border",
+                              isSelected
+                                ? "border-black/40 ring-2 ring-black/15"
+                                : "border-zinc-200 hover:border-zinc-300",
+                            ].join(" ")}
+                            onMouseDown={() => {
+                              // 在 onMouseDown 中设置选中 + 重置 drag 标记
+                              // 如果后续发生真实拖拽，onDragStart 会把 didDragRef 改回 true
+                              didDragRef.current = false;
+                              setSelectedId(el.id);
+                            }}
+                          >
+                            {el.type === "image" ? (
+                              isEmptyImageSrc(el.src) ? (
+                                <ImageSlotPlaceholder />
+                              ) : (
+                                <img
+                                  className="h-full w-full object-cover"
+                                  src={el.src}
+                                  alt="poster image"
+                                  draggable={false}
+                                />
+                              )
+                            ) : (
+                              <div
+                                className="flex h-full min-h-0 w-full flex-col"
+                                style={{
+                                  fontSize: el.fontSize,
+                                  color: el.color,
+                                  lineHeight: 1.15,
+                                  wordBreak: "break-word",
+                                  overflow: "hidden",
+                                  fontFamily: (el as PosterTextElement).fontFamily || undefined,
+                                }}
+                              >
+                                {/* flex-1 占满剩余高度，否则内层高度贴内容，justify-content 无法产生上下留白 */}
+                                <div
+                                  className="flex min-h-0 w-full flex-1 flex-col"
+                                  style={{
+                                    justifyContent:
+                                      el.verticalAlign === "center"
+                                        ? "center"
+                                        : el.verticalAlign === "bottom"
+                                          ? "flex-end"
+                                          : "flex-start",
+                                    textAlign: el.textAlign,
+                                    overflow: "hidden",
+                                  }}
+                                >
+                                  {el.text || (
+                                    <span style={{ color: "#d4d4d8" }}>文本占位</span>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </Rnd>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
-              {fonts.length === 0 && !fontsLoading ? (
-                <div className="rounded-xl border border-zinc-100 bg-zinc-50 py-6 text-center text-xs text-zinc-400">
-                  暂无已上传字体
-                </div>
-              ) : (
-                <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
-                  {fonts.map((font) => (
-                    <div
-                      key={font.id}
-                      className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-3 py-2.5"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium text-zinc-900" style={{ fontFamily: font.name }}>
-                          {font.name}
-                        </div>
-                        <div className="text-[11px] text-zinc-400 mt-0.5">
-                          {font.format.toUpperCase()} · <span style={{ fontFamily: font.name }}>AaBb 中文字体预览</span>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          if (!confirm(`确定删除字体「${font.name}」吗？删除后已用该字体的文本将回退到默认字体。`)) return;
-                          await deleteFont(font.id);
-                        }}
-                        className="ml-3 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-red-400 hover:bg-red-50 hover:text-red-500"
-                        title="删除字体"
-                      >
-                        <Trash className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           </div>
-        </div>
-      )}
+
+          {/* 右侧属性面板 - 固定栏形式 */}
+          {selected && (
+            <aside className="w-[320px] shrink-0 overflow-y-auto border-l border-zinc-200 bg-white px-4 py-6">
+              <ElementEditor
+                element={selected}
+                onChange={updateSelected}
+                fonts={fonts}
+                onDelete={() => {
+                  setElements((prev) => prev.filter((e) => e.id !== selected.id));
+                  setSelectedId(null);
+                }}
+              />
+            </aside>
+          )}
+        </main>
+      </div>
+
+
     </div>
   );
 }

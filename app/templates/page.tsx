@@ -1,3 +1,5 @@
-import TemplatesListView from "./_components/TemplatesListView";
+import { redirect } from "next/navigation";
 
-export default TemplatesListView;
+export default function TemplatesPage() {
+  redirect("/admin/templates");
+}

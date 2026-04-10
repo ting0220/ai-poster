@@ -13,8 +13,12 @@ function formatDate(date: Date): string {
   return `${y}-${m}-${d} ${h}:${min}`;
 }
 
-export default async function TemplatesListView() {
+export default async function AdminTemplatesPage() {
   const authenticated = await isAuthenticated();
+
+  if (!authenticated) {
+    return <PasswordGate redirectTo="/admin/templates" />;
+  }
 
   const templates = await prisma.template.findMany({
     orderBy: { updatedAt: "desc" },
@@ -27,7 +31,7 @@ export default async function TemplatesListView() {
         <div className="flex items-center justify-between">
           <div>
             <div className="text-xl font-semibold text-zinc-900">海报模板</div>
-            <div className="mt-1 text-sm text-zinc-500">定制模板并生成多张海报</div>
+            <div className="mt-1 text-sm text-zinc-500">管理模板并生成多张海报</div>
           </div>
           <Link
             href="/templates/new"
