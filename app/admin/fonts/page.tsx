@@ -1,8 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Type, Upload, Loader2, Trash, ChevronLeft } from "lucide-react";
-import Link from "next/link";
+import { Type, Upload, Loader2, Trash } from "lucide-react";
 import type { FontItem } from "@/app/_components/poster/posterTypes";
 
 const injectedFonts = new Set<string>();
@@ -114,12 +113,6 @@ export default function FontsManagementPage() {
       <div className="mx-auto max-w-4xl">
         {/* 头部 */}
         <div className="mb-6 flex items-center gap-4">
-          <Link
-            href="/admin/templates"
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:text-zinc-900"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Link>
           <div className="flex items-center gap-3">
             <div className="grid h-10 w-10 place-items-center rounded-xl bg-indigo-50 text-indigo-600">
               <Type className="h-5 w-5" />

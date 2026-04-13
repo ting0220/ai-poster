@@ -850,7 +850,7 @@ export default function PosterBuilder({
               <br />
               3. 右侧属性面板可修改宽高/位置/文本内容。
               <br />
-              4. <kbd className="rounded border border-zinc-300 bg-white px-1 text-[10px]">Ctrl</kbd> + 滚轮缩放画布。
+              4. <kbd className="rounded border border-zinc-300 bg-white px-1 text-[10px]">Ctrl</kbd>/<kbd className="rounded border border-zinc-300 bg-white px-1 text-[10px]">Cmd</kbd> + 滚轮缩放画布。
             </div>
           </div>
 

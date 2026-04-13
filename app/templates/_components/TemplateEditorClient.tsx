@@ -128,12 +128,15 @@ export default function TemplateEditorClient({
       onTemplateChange={(s) => setSnapshot(s)}
       onBackgroundChange={onBackgroundChange}
       sidebarHeader={
-        <input
-          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-          value={templateName}
-          onChange={(e) => setTemplateName(e.target.value)}
-          placeholder="模板名称"
-        />
+        <div className="space-y-2">
+          <label className="text-sm font-semibold text-zinc-900">模板名称</label>
+          <input
+            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+            value={templateName}
+            onChange={(e) => setTemplateName(e.target.value)}
+            placeholder="请输入模板名称"
+          />
+        </div>
       }
       sidebarFooter={
         <button

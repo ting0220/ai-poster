@@ -264,9 +264,20 @@ export default function GenerateTemplateClient({ template }: { template: Templat
                         <div className="w-28 shrink-0 pt-2 text-sm font-medium text-zinc-700">{key}</div>
                         <div className="min-w-0 flex-1">
                           <textarea
-                            className="h-24 w-full resize-none rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                            className="w-full resize-none overflow-hidden rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                            rows={1}
                             value={variables[key] ?? ""}
-                            onChange={(e) => setVariables((prev) => ({ ...prev, [key]: e.target.value }))}
+                            onChange={(e) => {
+                              setVariables((prev) => ({ ...prev, [key]: e.target.value }));
+                              const el = e.target;
+                              el.style.height = "auto";
+                              el.style.height = `${el.scrollHeight}px`;
+                            }}
+                            onFocus={(e) => {
+                              const el = e.target;
+                              el.style.height = "auto";
+                              el.style.height = `${el.scrollHeight}px`;
+                            }}
                             placeholder={`请输入${key}`}
                           />
                         </div>
