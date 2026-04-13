@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Type, Upload, Loader2, Trash } from "lucide-react";
+import { Type, Upload, Loader2, Trash, X } from "lucide-react";
 import type { FontItem } from "@/app/_components/poster/posterTypes";
 
 const injectedFonts = new Set<string>();
@@ -36,6 +36,7 @@ export default function FontsManagementPage() {
   const [error, setError] = useState<string | null>(null);
   const [fontUploadName, setFontUploadName] = useState("");
   const [fontUploadError, setFontUploadError] = useState<string | null>(null);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const loadedRef = useRef(false);
 
   const loadFonts = useCallback(async () => {
@@ -108,6 +109,29 @@ export default function FontsManagementPage() {
     }
   }, []);
 
+  const openUploadModal = () => {
+    setFontUploadName("");
+    setFontUploadError(null);
+    setError(null);
+    setShowUploadModal(true);
+  };
+
+  const closeUploadModal = () => {
+    setShowUploadModal(false);
+  };
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    const result = await uploadFont(file, fontUploadName || undefined);
+    if (result) {
+      closeUploadModal();
+    } else {
+      setFontUploadError(error ?? "上传失败");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-zinc-50 p-6">
       <div className="mx-auto max-w-4xl">
@@ -124,75 +148,8 @@ export default function FontsManagementPage() {
           </div>
         </div>
 
-        {/* 上传区域 */}
-        <div className="mb-6 rounded-2xl border border-zinc-200 bg-white p-6">
-          <div className="mb-4 flex items-center gap-2">
-            <Upload className="h-4 w-4 text-zinc-500" />
-            <h2 className="text-sm font-medium text-zinc-900">上传新字体</h2>
-          </div>
-
-          <div className="mb-4">
-            <label className="block">
-              <span className="mb-1.5 block text-xs text-zinc-600">字体名称（留空则使用文件名）</span>
-              <input
-                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400"
-                type="text"
-                placeholder="例如：思源黑体"
-                value={fontUploadName}
-                onChange={(e) => setFontUploadName(e.target.value)}
-              />
-            </label>
-          </div>
-
-          {fontUploadError && (
-            <div className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
-              {fontUploadError}
-            </div>
-          )}
-
-          {error && (
-            <div className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
-              {error}
-            </div>
-          )}
-
-          <label className="flex w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 py-8 hover:border-zinc-400 hover:bg-zinc-100 transition-colors">
-            {uploading ? (
-              <>
-                <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
-                <span className="text-sm text-zinc-600">上传中…</span>
-              </>
-            ) : (
-              <>
-                <Upload className="h-6 w-6 text-zinc-400" />
-                <span className="text-sm font-medium text-zinc-700">点击选择字体文件</span>
-                <span className="text-xs text-zinc-500">支持 .ttf .otf .woff .woff2 格式</span>
-              </>
-            )}
-            <input
-              type="file"
-              className="sr-only"
-              accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2,application/font-woff,application/font-woff2,application/x-font-ttf,application/x-font-otf,application/octet-stream"
-              disabled={uploading}
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                e.target.value = "";
-                setFontUploadError(null);
-                setError(null);
-                const result = await uploadFont(file, fontUploadName || undefined);
-                if (result) {
-                  setFontUploadName("");
-                } else {
-                  setFontUploadError(error ?? "上传失败");
-                }
-              }}
-            />
-          </label>
-        </div>
-
         {/* 字体列表 */}
-        <div className="rounded-2xl border border-zinc-200 bg-white p-6">
+        <div className="mb-6 rounded-2xl border border-zinc-200 bg-white p-6">
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Type className="h-4 w-4 text-zinc-500" />
@@ -208,7 +165,7 @@ export default function FontsManagementPage() {
             <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50 py-12 text-center">
               <Type className="mx-auto h-8 w-8 text-zinc-300" />
               <p className="mt-2 text-sm text-zinc-500">暂无已上传字体</p>
-              <p className="text-xs text-zinc-400">上传字体后可在模板编辑器中使用</p>
+              <p className="text-xs text-zinc-400">点击下方「上传字体」添加新字体</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -247,6 +204,81 @@ export default function FontsManagementPage() {
             </div>
           )}
         </div>
+
+        {/* 上传字体按钮 */}
+        <button
+          type="button"
+          onClick={openUploadModal}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-900 py-3 text-sm font-medium text-white hover:bg-zinc-800"
+        >
+          <Upload className="h-4 w-4" />
+          上传字体
+        </button>
+
+        {/* 上传弹窗 */}
+        {showUploadModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-base font-semibold text-zinc-900">上传字体</h3>
+                <button
+                  type="button"
+                  onClick={closeUploadModal}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="mb-4">
+                <label className="block">
+                  <span className="mb-1.5 block text-xs text-zinc-600">字体名称（留空则使用文件名）</span>
+                  <input
+                    className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400"
+                    type="text"
+                    placeholder="例如：思源黑体"
+                    value={fontUploadName}
+                    onChange={(e) => setFontUploadName(e.target.value)}
+                  />
+                </label>
+              </div>
+
+              {fontUploadError && (
+                <div className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
+                  {fontUploadError}
+                </div>
+              )}
+
+              {error && (
+                <div className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
+                  {error}
+                </div>
+              )}
+
+              <label className="flex w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 py-8 transition-colors hover:border-zinc-400 hover:bg-zinc-100">
+                {uploading ? (
+                  <>
+                    <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
+                    <span className="text-sm text-zinc-600">上传中…</span>
+                  </>
+                ) : (
+                  <>
+                    <Upload className="h-6 w-6 text-zinc-400" />
+                    <span className="text-sm font-medium text-zinc-700">点击选择字体文件</span>
+                    <span className="text-xs text-zinc-500">支持 .ttf .otf .woff .woff2 格式</span>
+                  </>
+                )}
+                <input
+                  type="file"
+                  className="sr-only"
+                  accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2,application/font-woff,application/font-woff2,application/x-font-ttf,application/x-font-otf,application/octet-stream"
+                  disabled={uploading}
+                  onChange={handleUpload}
+                />
+              </label>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

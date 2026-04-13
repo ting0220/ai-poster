@@ -3,18 +3,37 @@ import { prisma } from "../../_lib/prisma";
 
 import type { PosterElementType } from "@/app/generated/prisma/enums";
 
-export async function GET() {
-  const templates = await prisma.template.findMany({
-    orderBy: { updatedAt: "desc" },
-    select: {
-      id: true,
-      name: true,
-      canvasWidth: true,
-      canvasHeight: true,
-      updatedAt: true,
-    },
-  });
-  return NextResponse.json({ templates });
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
+  const pageSize = Math.min(50, Math.max(1, parseInt(searchParams.get("pageSize") ?? "10", 10)));
+  const orderBy = searchParams.get("orderBy") === "createdAt" ? "createdAt" : "updatedAt";
+  const order = searchParams.get("order") === "asc" ? "asc" : "desc";
+  const search = searchParams.get("search")?.trim() ?? "";
+
+  const where = search
+    ? { name: { contains: search } }
+    : undefined;
+
+  const [templates, total] = await Promise.all([
+    prisma.template.findMany({
+      where,
+      orderBy: { [orderBy]: order },
+      select: {
+        id: true,
+        name: true,
+        canvasWidth: true,
+        canvasHeight: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.template.count({ where }),
+  ]);
+
+  return NextResponse.json({ templates, total, page, pageSize, totalPages: Math.ceil(total / pageSize) });
 }
 
 function normalizeType(type: "image" | "text"): PosterElementType {
